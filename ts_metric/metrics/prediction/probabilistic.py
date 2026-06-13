@@ -1,7 +1,7 @@
 """Prediction probabilistic metrics.
 
 Includes GluonTS-compatible metrics (QuantileLoss, wQuantileLoss, Coverage, MSIS)
-and additional metrics (CRPS, PICP, QICE, calibration, log_likelihood).
+and additional metrics (CRPS, PICP, QICE, log_likelihood).
 
 Input shapes:
   target:  (B, C, T) or (C, T)
@@ -10,13 +10,12 @@ Input shapes:
 """
 
 import torch
-from ...utils import (
-    _prepare_prob, masked_mean, masked_sum,
-    compute_quantiles_torch, DEFAULT_QUANTILE_LEVELS,
-)
+from ...utils import _prepare_prob, masked_mean, masked_sum
 
 GLUONTS_QUANTILE_LEVELS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
 
+
+# --- CRPS ---
 
 def crps_exact(target, samples, mask=None):
     """Exact CRPS: E|X - y| - 0.5 * E|X - X'|.
@@ -42,26 +41,8 @@ def crps(target, samples, mask=None, quantile_levels=None):
     """CRPS as used in DeepAR, K2VAE, GluonTS: mean(wQuantileLoss).
 
     CRPS = mean_q(QL(q) / sum(|y|))
-
-    This is the convention used in most probabilistic forecasting papers.
     """
-    return mean_w_quantile_loss(target, samples, mask, quantile_levels)
-
-
-def crps_quantile(target, samples, mask=None):
-    """CRPS via quantile loss approximation (7 quantile levels)."""
-    t, s, m = _prepare_prob(target, samples, mask)
-    quantiles = compute_quantiles_torch(s, DEFAULT_QUANTILE_LEVELS)
-
-    total_loss = torch.tensor(0.0, device=t.device, dtype=t.dtype)
-    n_quantiles = 0
-    for q, q_pred in quantiles.items():
-        diff = t - q_pred
-        loss = torch.max(q * diff, (q - 1.0) * diff)
-        total_loss = total_loss + masked_mean(loss, m)
-        n_quantiles += 1
-
-    return 2.0 * total_loss / max(n_quantiles, 1)
+    return _mean_w_quantile_loss(target, samples, mask, quantile_levels)
 
 
 def crps_sum_exact(target, samples, mask=None):
@@ -74,19 +55,15 @@ def crps_sum_exact(target, samples, mask=None):
 
 
 def crps_sum(target, samples, mask=None, quantile_levels=None):
-    """CRPS-Sum as used in DeepAR, K2VAE: mean(wQuantileLoss) on feature-summed values.
-
-    Sums target and samples over the feature dimension (C), then computes
-    mean(wQuantileLoss) on the summed values.
-    """
+    """CRPS-Sum as used in DeepAR, K2VAE: mean(wQuantileLoss) on feature-summed values."""
     t, s, m = _prepare_prob(target, samples, mask)
     t_sum = t.sum(dim=1, keepdim=True)
     s_sum = s.sum(dim=2, keepdim=True)
     m_sum = m.sum(dim=1, keepdim=True)
-    return mean_w_quantile_loss(t_sum, s_sum, m_sum, quantile_levels)
+    return _mean_w_quantile_loss(t_sum, s_sum, m_sum, quantile_levels)
 
 
-# --- GluonTS-compatible metrics ---
+# --- Quantile-based metrics ---
 
 def _get_quantile_forecast(samples, q):
     """Get quantile forecast from samples. Returns (B, C, T)."""
@@ -111,7 +88,7 @@ def quantile_loss(target, samples, mask=None, quantile_levels=None):
 
 
 def w_quantile_loss(target, samples, mask=None, quantile_levels=None):
-    """Weighted quantile loss (GluonTS-compatible).
+    """Weighted quantile loss per level (GluonTS-compatible).
 
     wQL(q) = QuantileLoss(q) / sum(|y|)
 
@@ -124,16 +101,10 @@ def w_quantile_loss(target, samples, mask=None, quantile_levels=None):
     return {q: v / abs_target_sum.clamp(min=1e-8) for q, v in ql.items()}
 
 
-def mean_w_quantile_loss(target, samples, mask=None, quantile_levels=None):
-    """Mean weighted quantile loss across levels (GluonTS: mean_wQuantileLoss)."""
+def _mean_w_quantile_loss(target, samples, mask=None, quantile_levels=None):
+    """Mean weighted quantile loss across levels (internal, used by crps)."""
     wql = w_quantile_loss(target, samples, mask, quantile_levels)
     return torch.mean(torch.stack(list(wql.values())))
-
-
-def mean_absolute_quantile_loss(target, samples, mask=None, quantile_levels=None):
-    """Mean absolute quantile loss across levels (GluonTS: mean_absolute_QuantileLoss)."""
-    ql = quantile_loss(target, samples, mask, quantile_levels)
-    return torch.mean(torch.stack(list(ql.values())))
 
 
 def coverage(target, samples, mask=None, quantile_levels=None):
@@ -158,19 +129,18 @@ def mae_coverage(target, samples, mask=None, quantile_levels=None):
 
     MAE_Coverage = mean(|Coverage(q) - q|) over all q.
     """
-    t, s, m = _prepare_prob(target, samples, mask)
     levels = quantile_levels or GLUONTS_QUANTILE_LEVELS
     cov = coverage(target, samples, mask, levels)
     errors = [torch.abs(cov[q] - q) for q in levels]
     return torch.mean(torch.stack(errors))
 
 
+# --- Interval metrics ---
+
 def msis(target, samples, mask=None, alpha=0.05, seasonal_error=None):
     """Mean Scaled Interval Score (GluonTS/M4 competition).
 
     MSIS = mean(U - L + (2/α)(L-y)𝟙[y<L] + (2/α)(y-U)𝟙[y>U]) / seasonal_error
-
-    If seasonal_error is None, it is estimated from target as mean(|y[t] - y[t-1]|).
     """
     t, s, m = _prepare_prob(target, samples, mask)
 
@@ -183,16 +153,12 @@ def msis(target, samples, mask=None, alpha=0.05, seasonal_error=None):
     score = width + under + over
 
     if seasonal_error is None:
-        t_shifted = t[:, :, 1:]
-        t_orig = t[:, :, :-1]
-        seasonal_error = torch.abs(t_orig - t_shifted).mean().clamp(min=1e-8)
+        seasonal_error = torch.abs(t[:, :, 1:] - t[:, :, :-1]).mean().clamp(min=1e-8)
     else:
         seasonal_error = torch.tensor(seasonal_error, device=t.device, dtype=t.dtype)
 
     return masked_mean(score, m) / seasonal_error
 
-
-# --- Other metrics ---
 
 def picp(target, samples, mask=None, alpha=0.1):
     """Prediction Interval Coverage Probability."""
@@ -217,6 +183,8 @@ def qice(target, samples, mask=None):
     return torch.mean(torch.stack(errors))
 
 
+# --- Point-from-samples metrics ---
+
 def mse_median(target, samples, mask=None):
     """MSE of median forecast vs target."""
     t, s, m = _prepare_prob(target, samples, mask)
@@ -231,16 +199,7 @@ def mae_median(target, samples, mask=None):
     return masked_mean(torch.abs(t - median), m)
 
 
-def calibration_error(target, samples, mask=None, n_bins=10):
-    """Calibration error via reliability diagram."""
-    t, s, m = _prepare_prob(target, samples, mask)
-    errors = []
-    for q_level in torch.linspace(0.05, 0.95, n_bins, device=t.device):
-        q_pred = torch.quantile(s, q_level, dim=1)
-        observed = masked_mean((t <= q_pred).float(), m)
-        errors.append(torch.abs(observed - q_level))
-    return torch.mean(torch.stack(errors))
-
+# --- Distributional metrics ---
 
 def log_likelihood(target, samples, mask=None):
     """Gaussian log-likelihood score (higher is better)."""
@@ -253,27 +212,22 @@ def log_likelihood(target, samples, mask=None):
 
 PROB_METRICS = [
     "CRPS", "CRPS_sum", "CRPS_exact", "CRPS_sum_exact",
-    "mean_wQuantileLoss", "mean_absolute_QuantileLoss",
     "MAE_Coverage", "MSIS",
     "PICP", "QICE",
     "MSE_median", "MAE_median",
-    "Calibration", "LogLikelihood",
+    "LogLikelihood",
 ]
 
 PROB_METRIC_FUNCS = {
     "CRPS": crps,
-    "CRPS_quantile": crps_quantile,
     "CRPS_sum": crps_sum,
     "CRPS_exact": crps_exact,
     "CRPS_sum_exact": crps_sum_exact,
-    "mean_wQuantileLoss": mean_w_quantile_loss,
-    "mean_absolute_QuantileLoss": mean_absolute_quantile_loss,
     "MAE_Coverage": mae_coverage,
     "MSIS": msis,
     "PICP": picp,
     "QICE": qice,
     "MSE_median": mse_median,
     "MAE_median": mae_median,
-    "Calibration": calibration_error,
     "LogLikelihood": log_likelihood,
 }

@@ -141,13 +141,8 @@ class TestNewMetrics:
             assert val.shape == ()
             assert val >= 0
 
-    def test_mean_w_quantile_loss(self):
-        val = tm.prediction.mean_w_quantile_loss(self.target, self.samples)
-        assert val.shape == ()
-        assert val >= 0
-
-    def test_mean_absolute_quantile_loss(self):
-        val = tm.prediction.mean_absolute_quantile_loss(self.target, self.samples)
+    def test_crps(self):
+        val = tm.prediction.crps(self.target, self.samples)
         assert val.shape == ()
         assert val >= 0
 
@@ -174,10 +169,10 @@ class TestNewMetrics:
     def test_calculator_new_metrics(self):
         calc = tm.MetricCalculator(
             task="prediction", mode="probabilistic",
-            metrics=["mean_wQuantileLoss", "MAE_Coverage", "MSIS"]
+            metrics=["CRPS", "MAE_Coverage", "MSIS"]
         )
         results = calc.compute(self.target, self.samples)
-        assert "mean_wQuantileLoss" in results
+        assert "CRPS" in results
         assert "MAE_Coverage" in results
         assert "MSIS" in results
 
@@ -193,9 +188,10 @@ class TestK2VAECompatibility:
         self.samples = self.target.unsqueeze(1) + 0.2 * torch.randn(self.B, self.S, self.C, self.T)
 
     def test_crps_equals_mean_wql(self):
-        """crps should be identical to mean_wQuantileLoss."""
+        """crps should be identical to internal _mean_w_quantile_loss."""
+        from ts_metric.metrics.prediction.probabilistic import _mean_w_quantile_loss
         val_crps = tm.prediction.crps(self.target, self.samples)
-        val_wql = tm.prediction.mean_w_quantile_loss(self.target, self.samples)
+        val_wql = _mean_w_quantile_loss(self.target, self.samples)
         assert torch.allclose(val_crps, val_wql, atol=1e-7)
 
     def test_crps_vs_k2vae_evaluator(self):
