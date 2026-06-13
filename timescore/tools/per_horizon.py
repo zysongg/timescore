@@ -20,7 +20,7 @@ def per_horizon(metric_fn: Callable, target, forecast, mask=None, horizons=None)
     Returns:
         dict mapping horizon index -> metric value tensor
     """
-    from .utils import ensure_3d, clean_tensor, broadcast_mask
+    from ..utils import ensure_3d, clean_tensor, broadcast_mask
 
     target = ensure_3d(clean_tensor(target, "target"), "target")
     forecast = ensure_3d(clean_tensor(forecast, "forecast"), "forecast")
@@ -58,7 +58,7 @@ def per_horizon_prob(metric_fn: Callable, target, samples, mask=None, horizons=N
     Returns:
         dict mapping horizon index -> metric value tensor
     """
-    from .utils import ensure_3d, ensure_4d_samples, clean_tensor, broadcast_mask
+    from ..utils import ensure_3d, ensure_4d_samples, clean_tensor, broadcast_mask
 
     target = ensure_3d(clean_tensor(target, "target"), "target")
     samples = ensure_4d_samples(clean_tensor(samples, "samples"), "samples")

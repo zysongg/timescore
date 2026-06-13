@@ -20,6 +20,14 @@ def _check_matplotlib():
         )
 
 
+def _setup_style():
+    """Set Times New Roman font for all plots."""
+    import matplotlib.pyplot as plt
+    plt.rcParams["font.family"] = "Times New Roman"
+    plt.rcParams["axes.unicode_minus"] = False
+    plt.rcParams["font.size"] = 12
+
+
 def plot_coverage(target, samples, quantile_levels=None, mask=None, ax=None, **kwargs):
     """Plot observed vs expected coverage for each quantile level.
 
@@ -35,7 +43,8 @@ def plot_coverage(target, samples, quantile_levels=None, mask=None, ax=None, **k
         matplotlib axes
     """
     plt = _check_matplotlib()
-    from .metrics.prediction.probabilistic import coverage
+    _setup_style()
+    from ..metrics.prediction.probabilistic import coverage
 
     if quantile_levels is None:
         quantile_levels = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
@@ -75,7 +84,8 @@ def plot_quantile_loss(target, samples, quantile_levels=None, mask=None, ax=None
         matplotlib axes
     """
     plt = _check_matplotlib()
-    from .metrics.prediction.probabilistic import w_quantile_loss
+    _setup_style()
+    from ..metrics.prediction.probabilistic import w_quantile_loss
 
     if quantile_levels is None:
         quantile_levels = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
@@ -111,7 +121,8 @@ def plot_calibration(target, samples, n_bins=10, mask=None, ax=None, **kwargs):
         matplotlib axes
     """
     plt = _check_matplotlib()
-    from .utils import _prepare_prob, masked_mean
+    _setup_style()
+    from ..utils import _prepare_prob, masked_mean
 
     t, s, m = _prepare_prob(target, samples, mask)
 
@@ -155,7 +166,8 @@ def plot_crps_comparison(target, samples_dict, labels=None, ax=None):
         matplotlib axes
     """
     plt = _check_matplotlib()
-    from .metrics.prediction.probabilistic import crps
+    _setup_style()
+    from ..metrics.prediction.probabilistic import crps
 
     if labels is None:
         labels = list(samples_dict.keys())
