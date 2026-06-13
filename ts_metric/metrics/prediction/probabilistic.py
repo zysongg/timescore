@@ -18,10 +18,11 @@ from ...utils import (
 GLUONTS_QUANTILE_LEVELS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
 
 
-def crps(target, samples, mask=None):
-    """Continuous Ranked Probability Score (exact formula).
+def crps_exact(target, samples, mask=None):
+    """Exact CRPS: E|X - y| - 0.5 * E|X - X'|.
 
-    CRPS = E|X - y| - 0.5 * E|X - X'|
+    Uses the closed-form formula with sorted samples. O(S log S).
+    Verified against CRPS.CRPS package (NsDiff reference).
     """
     t, s, m = _prepare_prob(target, samples, mask)
     B, S, C, T = s.shape
@@ -35,6 +36,16 @@ def crps(target, samples, mask=None):
 
     crps_val = term1 - term2
     return masked_mean(crps_val, m)
+
+
+def crps(target, samples, mask=None, quantile_levels=None):
+    """CRPS as used in DeepAR, K2VAE, GluonTS: mean(wQuantileLoss).
+
+    CRPS = mean_q(QL(q) / sum(|y|))
+
+    This is the convention used in most probabilistic forecasting papers.
+    """
+    return mean_w_quantile_loss(target, samples, mask, quantile_levels)
 
 
 def crps_quantile(target, samples, mask=None):
@@ -53,13 +64,26 @@ def crps_quantile(target, samples, mask=None):
     return 2.0 * total_loss / max(n_quantiles, 1)
 
 
-def crps_sum(target, samples, mask=None):
-    """CRPS over marginal sums across features."""
+def crps_sum_exact(target, samples, mask=None):
+    """Exact CRPS computed on marginal sums across features."""
     t, s, m = _prepare_prob(target, samples, mask)
     t_sum = t.sum(dim=1, keepdim=True)
     s_sum = s.sum(dim=2, keepdim=True)
     m_sum = m.sum(dim=1, keepdim=True)
-    return crps(t_sum, s_sum, m_sum)
+    return crps_exact(t_sum, s_sum, m_sum)
+
+
+def crps_sum(target, samples, mask=None, quantile_levels=None):
+    """CRPS-Sum as used in DeepAR, K2VAE: mean(wQuantileLoss) on feature-summed values.
+
+    Sums target and samples over the feature dimension (C), then computes
+    mean(wQuantileLoss) on the summed values.
+    """
+    t, s, m = _prepare_prob(target, samples, mask)
+    t_sum = t.sum(dim=1, keepdim=True)
+    s_sum = s.sum(dim=2, keepdim=True)
+    m_sum = m.sum(dim=1, keepdim=True)
+    return mean_w_quantile_loss(t_sum, s_sum, m_sum, quantile_levels)
 
 
 # --- GluonTS-compatible metrics ---
@@ -227,30 +251,8 @@ def log_likelihood(target, samples, mask=None):
     return masked_mean(ll, m)
 
 
-def crps_k2vae(target, samples, mask=None, quantile_levels=None):
-    """CRPS as defined in K2VAE/DeepAR: mean(wQuantileLoss) over quantile levels.
-
-    This is NOT the exact CRPS. It equals mean_wQuantileLoss.
-    Used by K2VAE, DeepAR, and many other probabilistic forecasting papers.
-    """
-    return mean_w_quantile_loss(target, samples, mask, quantile_levels)
-
-
-def crps_sum_k2vae(target, samples, mask=None, quantile_levels=None):
-    """CRPS-Sum as defined in K2VAE/DeepAR.
-
-    Sums target and samples over the feature dimension (C), then computes
-    mean(wQuantileLoss) on the summed values.
-    """
-    t, s, m = _prepare_prob(target, samples, mask)
-    t_sum = t.sum(dim=1, keepdim=True)   # (B, 1, T)
-    s_sum = s.sum(dim=2, keepdim=True)   # (B, S, 1, T)
-    m_sum = m.sum(dim=1, keepdim=True)   # (B, 1, T)
-    return mean_w_quantile_loss(t_sum, s_sum, m_sum, quantile_levels)
-
-
 PROB_METRICS = [
-    "CRPS", "CRPS_sum", "CRPS_k2vae", "CRPS_sum_k2vae",
+    "CRPS", "CRPS_sum", "CRPS_exact", "CRPS_sum_exact",
     "mean_wQuantileLoss", "mean_absolute_QuantileLoss",
     "MAE_Coverage", "MSIS",
     "PICP", "QICE",
@@ -262,8 +264,8 @@ PROB_METRIC_FUNCS = {
     "CRPS": crps,
     "CRPS_quantile": crps_quantile,
     "CRPS_sum": crps_sum,
-    "CRPS_k2vae": crps_k2vae,
-    "CRPS_sum_k2vae": crps_sum_k2vae,
+    "CRPS_exact": crps_exact,
+    "CRPS_sum_exact": crps_sum_exact,
     "mean_wQuantileLoss": mean_w_quantile_loss,
     "mean_absolute_QuantileLoss": mean_absolute_quantile_loss,
     "MAE_Coverage": mae_coverage,

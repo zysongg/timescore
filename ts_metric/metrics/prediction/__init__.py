@@ -6,7 +6,7 @@ from .point import (
     POINT_METRICS, POINT_METRIC_FUNCS,
 )
 from .probabilistic import (
-    crps, crps_quantile, crps_sum, crps_k2vae, crps_sum_k2vae,
+    crps, crps_exact, crps_sum, crps_sum_exact, crps_quantile,
     quantile_loss, w_quantile_loss, mean_w_quantile_loss, mean_absolute_quantile_loss,
     coverage, mae_coverage, msis,
     picp, qice, mse_median, mae_median,
@@ -17,7 +17,7 @@ from .probabilistic import (
 __all__ = [
     "mse", "mae", "rmse", "nrmse", "mape", "smape", "nd", "r2", "correlation",
     "mse_per_feature", "mae_per_feature",
-    "crps", "crps_quantile", "crps_sum", "crps_k2vae", "crps_sum_k2vae",
+    "crps", "crps_exact", "crps_sum", "crps_sum_exact", "crps_quantile",
     "quantile_loss", "w_quantile_loss", "mean_w_quantile_loss", "mean_absolute_quantile_loss",
     "coverage", "mae_coverage", "msis",
     "picp", "qice", "mse_median", "mae_median",
