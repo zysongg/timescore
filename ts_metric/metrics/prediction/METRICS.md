@@ -74,15 +74,30 @@ $$\text{Corr} = \frac{1}{B \cdot C} \sum_{b,c} \text{corr}(y_{b,c,:}, \hat{y}_{b
 
 ### CRPS (Continuous Ranked Probability Score)
 
-$$\text{CRPS} = \frac{2}{Q} \sum_{q \in \mathcal{Q}} \text{QL}(q, y, \hat{y}^{(q)})$$
+$$\text{CRPS} = \mathbb{E}|X - y| - \frac{1}{2} \mathbb{E}|X - X'|$$
 
-其中 $\mathcal{Q} = \{0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95\}$ 是分位数集合，$\hat{y}^{(q)}$ 是样本的 $q$ 分位数，$\text{QL}$ 是分位数损失：
+其中 $X, X'$ 是从预测分布中独立抽取的样本。对于 $S$ 个集成样本的精确计算：
+
+$$\text{CRPS} = \frac{1}{S} \sum_{s=1}^{S} |x_s - y| - \frac{1}{S^2} \sum_{s=1}^{S} (2s - 1 - S) \cdot x_{(s)}$$
+
+其中 $x_{(s)}$ 是排序后的第 $s$ 个样本。
+
+- **含义**: 连续排序概率得分，衡量预测分布与真实值的整体匹配度
+- **越小越好**，0 表示完美预测
+- **实现**: `crps()` 使用精确公式，$O(S \log S)$ 复杂度（通过排序优化）
+- **验证**: 与 `CRPS.CRPS` 包（NsDiff 参考实现）结果完全一致
+
+### CRPS_quantile (分位数近似)
+
+$$\text{CRPS\_quantile} \approx \frac{2}{Q} \sum_{q \in \mathcal{Q}} \text{QL}(q, y, \hat{y}^{(q)})$$
+
+其中 $\mathcal{Q} = \{0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95\}$ 是分位数集合，$\text{QL}$ 是分位数损失：
 
 $$\text{QL}(q, y, \hat{y}) = \max(q \cdot (y - \hat{y}), (q-1) \cdot (y - \hat{y}))$$
 
-- **含义**: 连续排序概率得分，衡量预测分布与真实值的整体匹配度
+- **含义**: CRPS 的分位数损失近似（GluonTS/DeepAR 风格）
 - **越小越好**
-- **通过分位数损失近似计算**
+- **精度**: 约 4-5% 误差（受 7 个分位点限制），速度更快
 
 ### CRPS_sum
 
