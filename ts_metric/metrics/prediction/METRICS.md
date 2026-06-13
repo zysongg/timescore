@@ -17,6 +17,14 @@ $$\text{RMSE} = \sqrt{\text{MSE}}$$
 - **含义**: MSE 的平方根，与原始数据量纲一致
 - **越小越好**
 
+### NRMSE (Normalized RMSE) — GluonTS 兼容
+
+$$\text{NRMSE} = \frac{\text{RMSE}}{\text{mean}(|y|)}$$
+
+- **含义**: 归一化 RMSE，除以真实值绝对值的均值
+- **越小越好**
+- **参考**: GluonTS Evaluator
+
 ### MAE (Mean Absolute Error)
 
 $$\text{MAE} = \frac{1}{B \cdot C \cdot T} \sum_{b,c,t} |y_{b,c,t} - \hat{y}_{b,c,t}|$$
@@ -105,6 +113,71 @@ $$\text{CRPS\_sum} = \text{CRPS}\left(\sum_c y_{b,c,t}, \sum_c s_{b,s,c,t}\right
 
 - **含义**: 对所有特征求和后的 CRPS，衡量边际分布质量
 - **越小越好**
+
+---
+
+### GluonTS 兼容概率指标
+
+以下指标的公式与 GluonTS Evaluator 完全一致，已通过数值验证。
+
+#### QuantileLoss[q] — 分位数损失
+
+$$\text{QL}(q) = 2 \sum_{b,c,t} \left|(\hat{y}^{(q)} - y) \cdot (\mathbb{1}[y \leq \hat{y}^{(q)}] - q)\right|$$
+
+默认分位点: $q \in \{0.1, 0.2, \ldots, 0.9\}$
+
+- **含义**: 每个分位点水平的加权 pinball loss（sum 而非 mean）
+- **越小越好**
+- **返回**: `dict` 映射 $q$ → 标量
+
+#### wQuantileLoss[q] — 加权分位数损失
+
+$$\text{wQL}(q) = \frac{\text{QL}(q)}{\sum |y|}$$
+
+- **含义**: QuantileLoss 除以真实值绝对值之和，实现跨序列可比
+- **越小越好**
+
+#### mean_wQuantileLoss
+
+$$\text{mean\_wQuantileLoss} = \frac{1}{|\mathcal{Q}|} \sum_{q \in \mathcal{Q}} \text{wQL}(q)$$
+
+- **含义**: 所有分位点的 wQuantileLoss 均值，GluonTS 的核心汇总指标
+- **越小越好**
+
+#### mean_absolute_QuantileLoss
+
+$$\text{mean\_absolute\_QuantileLoss} = \frac{1}{|\mathcal{Q}|} \sum_{q \in \mathcal{Q}} \text{QL}(q)$$
+
+- **含义**: 所有分位点的 QuantileLoss 均值
+- **越小越好**
+
+#### Coverage[q] — 覆盖率
+
+$$\text{Coverage}(q) = \frac{1}{B \cdot C \cdot T} \sum_{b,c,t} \mathbb{1}[y_{b,c,t} \leq \hat{y}^{(q)}_{b,c,t}]$$
+
+- **含义**: 真实值低于分位数预测的比例
+- **范围**: $[0, 1]$
+- **理想值**: $q$（如 $q=0.5$ 时理想覆盖率为 0.5）
+- **返回**: `dict` 映射 $q$ → 标量
+
+#### MAE_Coverage
+
+$$\text{MAE\_Coverage} = \frac{1}{|\mathcal{Q}|} \sum_{q \in \mathcal{Q}} |\text{Coverage}(q) - q|$$
+
+- **含义**: 覆盖率与期望覆盖率的平均绝对偏差，衡量校准质量
+- **越小越好**，0 表示完美校准
+
+#### MSIS (Mean Scaled Interval Score) — M4 竞赛指标
+
+$$\text{MSIS} = \frac{1}{\text{seasonal\_error}} \cdot \text{mean}\left(U - L + \frac{2}{\alpha}(L - y)\mathbb{1}[y < L] + \frac{2}{\alpha}(y - U)\mathbb{1}[y > U]\right)$$
+
+其中 $L = \hat{y}^{(\alpha/2)}$, $U = \hat{y}^{(1-\alpha/2)}$，默认 $\alpha = 0.05$（95% 区间）。
+
+`seasonal_error` 默认由 `mean(|y[t] - y[t-1]|)` 估计，也可通过参数传入。
+
+- **含义**: 缩放区间得分，同时衡量区间宽度和覆盖率
+- **越小越好**
+- **参考**: M4 Competition, GluonTS
 
 ### PICP (Prediction Interval Coverage Probability)
 

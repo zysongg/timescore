@@ -107,11 +107,20 @@ def mae_per_feature(target, forecast, mask=None):
     return masked_mean_per_feature(torch.abs(t - f), m)
 
 
-POINT_METRICS = ["MSE", "RMSE", "MAE", "MAPE", "sMAPE", "ND", "R2", "Correlation"]
+def nrmse(target, forecast, mask=None):
+    """Normalized RMSE: RMSE / mean(|y|) (GluonTS: NRMSE)."""
+    t, f, m = _prepare_point(target, forecast, mask)
+    rmse_val = torch.sqrt(masked_mean((t - f) ** 2, m))
+    abs_mean = masked_mean(torch.abs(t), m)
+    return rmse_val / abs_mean.clamp(min=1e-8)
+
+
+POINT_METRICS = ["MSE", "RMSE", "NRMSE", "MAE", "MAPE", "sMAPE", "ND", "R2", "Correlation"]
 
 POINT_METRIC_FUNCS = {
     "MSE": mse,
     "RMSE": rmse,
+    "NRMSE": nrmse,
     "MAE": mae,
     "MAPE": mape,
     "sMAPE": smape,
