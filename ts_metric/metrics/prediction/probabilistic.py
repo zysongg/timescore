@@ -227,8 +227,30 @@ def log_likelihood(target, samples, mask=None):
     return masked_mean(ll, m)
 
 
+def crps_k2vae(target, samples, mask=None, quantile_levels=None):
+    """CRPS as defined in K2VAE/DeepAR: mean(wQuantileLoss) over quantile levels.
+
+    This is NOT the exact CRPS. It equals mean_wQuantileLoss.
+    Used by K2VAE, DeepAR, and many other probabilistic forecasting papers.
+    """
+    return mean_w_quantile_loss(target, samples, mask, quantile_levels)
+
+
+def crps_sum_k2vae(target, samples, mask=None, quantile_levels=None):
+    """CRPS-Sum as defined in K2VAE/DeepAR.
+
+    Sums target and samples over the feature dimension (C), then computes
+    mean(wQuantileLoss) on the summed values.
+    """
+    t, s, m = _prepare_prob(target, samples, mask)
+    t_sum = t.sum(dim=1, keepdim=True)   # (B, 1, T)
+    s_sum = s.sum(dim=2, keepdim=True)   # (B, S, 1, T)
+    m_sum = m.sum(dim=1, keepdim=True)   # (B, 1, T)
+    return mean_w_quantile_loss(t_sum, s_sum, m_sum, quantile_levels)
+
+
 PROB_METRICS = [
-    "CRPS", "CRPS_sum",
+    "CRPS", "CRPS_sum", "CRPS_k2vae", "CRPS_sum_k2vae",
     "mean_wQuantileLoss", "mean_absolute_QuantileLoss",
     "MAE_Coverage", "MSIS",
     "PICP", "QICE",
@@ -240,6 +262,8 @@ PROB_METRIC_FUNCS = {
     "CRPS": crps,
     "CRPS_quantile": crps_quantile,
     "CRPS_sum": crps_sum,
+    "CRPS_k2vae": crps_k2vae,
+    "CRPS_sum_k2vae": crps_sum_k2vae,
     "mean_wQuantileLoss": mean_w_quantile_loss,
     "mean_absolute_QuantileLoss": mean_absolute_quantile_loss,
     "MAE_Coverage": mae_coverage,

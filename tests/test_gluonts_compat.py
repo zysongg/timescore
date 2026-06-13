@@ -180,3 +180,76 @@ class TestNewMetrics:
         assert "mean_wQuantileLoss" in results
         assert "MAE_Coverage" in results
         assert "MSIS" in results
+
+
+class TestK2VAECompatibility:
+    """Verify our CRPS_k2vae and CRPS_sum_k2vae match K2VAE's evaluator."""
+
+    def setup_method(self):
+        torch.manual_seed(42)
+        self.B, self.C, self.T = 4, 3, 24
+        self.S = 100
+        self.target = torch.randn(self.B, self.C, self.T)
+        self.samples = self.target.unsqueeze(1) + 0.2 * torch.randn(self.B, self.S, self.C, self.T)
+
+    def test_crps_k2vae_equals_mean_wql(self):
+        """crps_k2vae should be identical to mean_wQuantileLoss."""
+        val_k2 = tm.prediction.crps_k2vae(self.target, self.samples)
+        val_wql = tm.prediction.mean_w_quantile_loss(self.target, self.samples)
+        assert torch.allclose(val_k2, val_wql, atol=1e-7)
+
+    def test_crps_k2vae_vs_k2vae_evaluator(self):
+        """Verify crps_k2vae matches K2VAE's Evaluator CRPS computation."""
+        import sys
+        sys.path.insert(0, "/data/songzy/workshop/project_ts/K2VAE")
+        from probts.utils.evaluator import Evaluator as K2Evaluator
+
+        # K2VAE expects: targets (B, T, C), forecasts (B, S, T, C)
+        targets_k2 = self.target.permute(0, 2, 1).numpy()
+        forecasts_k2 = self.samples.permute(0, 1, 3, 2).numpy()
+
+        evaluator = K2Evaluator(quantiles_num=10)
+        # get_sequence_metrics per sample, then mean
+        k2_crps_vals = []
+        for i in range(self.B):
+            m = evaluator.get_sequence_metrics(
+                targets_k2[i:i+1], forecasts_k2[i:i+1]
+            )
+            k2_crps_vals.append(m["CRPS"])
+        k2_crps = np.mean(k2_crps_vals)
+
+        our_crps = tm.prediction.crps_k2vae(self.target, self.samples).item()
+
+        assert abs(our_crps - k2_crps) / max(abs(k2_crps), 1e-8) < 0.01, \
+            f"CRPS_k2vae mismatch: ours={our_crps:.6f}, K2VAE={k2_crps:.6f}"
+
+    def test_crps_sum_k2vae_vs_k2vae_evaluator(self):
+        """Verify crps_sum_k2vae approximately matches K2VAE's CRPS-Sum.
+
+        Note: K2VAE computes per-sequence then averages: mean(QL_i / |y_i|).
+        We compute globally: sum(QL) / sum(|y|). These differ slightly (~1%).
+        """
+        import sys
+        sys.path.insert(0, "/data/songzy/workshop/project_ts/K2VAE")
+        from probts.utils.evaluator import Evaluator as K2Evaluator
+
+        targets_k2 = self.target.permute(0, 2, 1).numpy()
+        forecasts_k2 = self.samples.permute(0, 1, 3, 2).numpy()
+
+        evaluator = K2Evaluator(quantiles_num=10)
+        targets_sum = targets_k2.sum(axis=-1, keepdims=True)
+        forecasts_sum = forecasts_k2.sum(axis=-1, keepdims=True)
+
+        k2_crps_sum_vals = []
+        for i in range(self.B):
+            m = evaluator.get_sequence_metrics(
+                targets_sum[i:i+1], forecasts_sum[i:i+1]
+            )
+            k2_crps_sum_vals.append(m["CRPS"])
+        k2_crps_sum = np.mean(k2_crps_sum_vals)
+
+        our_crps_sum = tm.prediction.crps_sum_k2vae(self.target, self.samples).item()
+
+        # ~2% tolerance due to per-sequence vs global aggregation difference
+        assert abs(our_crps_sum - k2_crps_sum) / max(abs(k2_crps_sum), 1e-8) < 0.02, \
+            f"CRPS_sum_k2vae mismatch: ours={our_crps_sum:.6f}, K2VAE={k2_crps_sum:.6f}"
